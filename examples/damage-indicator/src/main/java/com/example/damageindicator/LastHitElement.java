@@ -1,12 +1,10 @@
 package com.example.damageindicator;
 
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.FontRenderer;
-
 import dev.xavier.stein.loader.api.Entities;
 import dev.xavier.stein.loader.api.HudElement;
 import dev.xavier.stein.loader.api.HudPlacement;
 import dev.xavier.stein.loader.api.Option;
+import dev.xavier.stein.loader.api.Render;
 
 /** "-3.5 ❤ (14/20)": the last hit you took, for three seconds. The player moves and scales it in the HUD editor. */
 final class LastHitElement implements HudElement {
@@ -36,7 +34,7 @@ final class LastHitElement implements HudElement {
         int max = self == null ? 20 : Math.round(Entities.maxHealth(self));
         text = Option.fmt(DamageIndicator.config.color) + String.format("-%.1f ❤", dmg) + " §7(" + hp + "/"
                 + max + ")";
-        width = Minecraft.getMinecraft().fontRendererObj.getStringWidth(text);
+        width = Render.textWidth(text);
         return true;
     }
 
@@ -47,13 +45,12 @@ final class LastHitElement implements HudElement {
 
     @Override
     public int height() {
-        return Minecraft.getMinecraft().fontRendererObj.FONT_HEIGHT;
+        return Render.fontHeight();
     }
 
     @Override
     public void draw(boolean alignRight, float partialTicks) {
-        FontRenderer font = Minecraft.getMinecraft().fontRendererObj;
-        font.drawStringWithShadow(text, 0, 0, 0xFFFFFF);
+        Render.text(text, 0, 0, 0xFFFFFFFF, true);
     }
 
     @Override

@@ -8,13 +8,14 @@ This guide covers everything you need to write, build and ship a mod.
 > **The API is experimental.** It works and it is what our own mods use, but anything marked `@Experimental` may still
 > change between Stein Loader versions. Tell us what you miss — this is the time to shape it.
 
-**Download** `stein-sdk.jar` and `stein-mod-template.zip` from the
+**Download** `stein-mod-template.zip` (and `stein-sdk.jar` if you build without Gradle) from the
 [latest release](../../releases/latest). **Example:** [`examples/damage-indicator`](examples/damage-indicator) is a
 complete mod — damage numbers over entities, a HUD element, a Panel page with a slider and a key picker, and a key that
-puts on your best armour. **Licence:** the API, the template and the examples are [MIT](LICENSE).
+turns the numbers on and off. **Licence:** the API, the template and the examples are [MIT](LICENSE).
 
 - [How it differs from Forge](#how-it-differs-from-forge)
-- [Quick start](#quick-start)
+- [Quick start with Gradle](#quick-start-with-gradle)
+- [Command line (no Gradle)](#command-line-no-gradle)
 - [Project layout](#project-layout)
 - [steinmod.json](#steinmodjson)
 - [Game names and private members](#game-names-and-private-members)
@@ -36,13 +37,80 @@ The last two rows are the trade-off. Mods cannot rewrite game bytecode, so two m
 and the engine underneath can keep changing without breaking you. In exchange, you can only change the game where the
 Loader gives you an event. If you need one that does not exist, ask for it (see [Troubleshooting](#troubleshooting)).
 
-## Quick start
+## Quick start with Gradle
 
-You need **JDK 25** (the game runs on Java 25) and **Minecraft 1.8.9** installed. If you have never played 1.8.9, the
-SDK downloads the game from Mojang, the same way the launcher does.
+You need **Java 17 or newer** to run Gradle and **Minecraft 1.8.9** installed. If you have never played 1.8.9, the
+SDK downloads the game from Mojang, the same way the launcher does. Nothing else to install: the Gradle wrapper
+downloads Gradle, and the template downloads **JDK 25** for compiling if you do not have it.
 
-Your mod is **Java 25**, not the Java 8 of Forge mods: the SDK compiles with `--release 25`, and records, sealed types,
+Your mod is **Java 25**, not the Java 8 of Forge mods: it compiles with `--release 25`, and records, sealed types,
 pattern matching in `switch`, text blocks and `var` all work in game.
+
+```sh
+# 1. Start from the template (or copy examples/damage-indicator).
+unzip stein-mod-template.zip -d my-mod && cd my-mod
+
+# 2. Build: produces build/libs/ExampleMod.steinmod (the "name" without spaces).
+./gradlew build            # Windows: gradlew build
+
+# 3. Or build and copy into .minecraft/mods in one go.
+./gradlew installMod
+```
+
+On Linux and macOS, run `chmod +x gradlew` once if the zip lost the executable bit.
+
+The first build prepares the game for compiling (see [below](#command-line-no-gradle): the same `setup`, once per
+machine, in `~/.stein-sdk`). Then start the game with the **Stein Loader** profile.
+
+The project is an ordinary Gradle project using the plugin `dev.xavier.stein.mod`:
+
+```groovy
+// settings.gradle
+pluginManagement {
+    repositories {
+        maven { url = uri("https://raw.githubusercontent.com/x4vieer/stein-sdk/maven") }
+        gradlePluginPortal()
+    }
+}
+
+// build.gradle
+plugins {
+    id 'dev.xavier.stein.mod' version '0.2.0'
+}
+
+stein {                                          // all optional
+    sdkVersion = '0.2.0'                         // the stein-sdk.jar release to use (default: the plugin's version)
+    minecraftDir = file('D:/Games/.minecraft')   // if your .minecraft is not in the usual place
+}
+```
+
+The plugin downloads `stein-sdk.jar` from this repository's releases into the Gradle cache and uses it for everything
+that involves the game: Gradle only compiles your code, and the SDK translates, checks and packs it — the `.steinmod`
+is the same as the one `java -jar stein-sdk.jar build` makes.
+
+| Task | What it does |
+|---|---|
+| `build` / `assemble` | compile, then `steinmod` |
+| `steinmod` | translate the compiled classes to the game's names, check every reference to the game, pack `build/libs/<Name>.steinmod` |
+| `installMod` | `steinmod`, then copy it into `<minecraftDir>/mods` |
+| `steinSetup` | prepare the game for compiling; runs by itself the first time, skipped once done |
+
+The plain `jar` task is turned off: a jar with readable names does not run in the game.
+
+**IDE.** Open the project folder in IntelliJ IDEA (or *File → Open* the `build.gradle`) and let it import it. The
+game with readable names, `stein-api.jar` and the game's libraries show up as compile-only libraries, including the
+members your `access` opens. The first import takes a minute more: that is the one-time setup. To read the API
+documentation in the editor, attach `stein-api-sources.jar` (next to `stein-api.jar` in `~/.stein-sdk/1.8.9`) when
+IntelliJ offers *Choose Sources…*. Changed `access` in `steinmod.json`? Reload the Gradle project. Eclipse works the
+same with Buildship.
+
+Jars in `libs/` (the API of another mod, see [Talking to another mod](#talking-to-another-mod)) are added for compiling
+too, as with the command line. The API is also published as `dev.xavier.stein:stein-api` in the same Maven repository,
+for tools that want it; you do not need it with the plugin.
+
+## Command line (no Gradle)
+
+The SDK is a single jar and works without Gradle. You need **JDK 25**.
 
 ```sh
 # 1. Once: prepare the game for compiling (readable names, see below).
@@ -68,10 +136,23 @@ Use `--mc <folder>` if your `.minecraft` is somewhere else.
 
 ### IDE
 
-Run `java -jar stein-sdk.jar classpath` and add the listed jars as libraries of your project (IntelliJ: *Project
-Structure → Libraries*; Eclipse: *Build Path → Add External JARs*). Attach `stein-api-sources.jar` (next to
-`stein-api.jar`) as the sources of `stein-api.jar` to get the API documentation in the editor. Set the project SDK to
-Java 25. Build with the SDK command, not the IDE: the SDK also translates the names back to the game's.
+Run `java -jar stein-sdk.jar classpath .` in your project and add the listed jars as libraries of your project
+(IntelliJ: *Project Structure → Libraries*; Eclipse: *Build Path → Add External JARs*). With the project folder given,
+the game jar listed first is the one with your `access` members opened (in `build/stein`); without it, the shared one.
+Attach `stein-api-sources.jar` (next to `stein-api.jar`) as the sources of `stein-api.jar` to get the API
+documentation in the editor. Set the project SDK to Java 25. Build with the SDK command, not the IDE: the SDK also
+translates the names back to the game's.
+
+### Other build tools
+
+`build` is two steps you can also run separately — compile against `classpath <project>` with `--release 25`, then:
+
+```sh
+java -jar stein-sdk.jar pack <classesDir> <resourcesDir> <out.steinmod>
+```
+
+`pack` translates the compiled classes to the game's names, checks every reference to the game and packs them with
+the resources (which must include `steinmod.json`). That is what the Gradle plugin runs.
 
 ## Project layout
 
@@ -83,7 +164,8 @@ my-mod/
     pack.mcmeta                   if you have assets
     assets/<your-id>/...          textures, lang files, sounds
   libs/                           extra jars to compile against (optional)
-  build/<Name>.steinmod           the output
+  build.gradle, settings.gradle   Gradle (optional; gradlew and gradle/ come with them)
+  build/libs/<Name>.steinmod      the output with Gradle (build/<Name>.steinmod with the command line)
 ```
 
 A `.steinmod` is a jar with another extension (old Forge tries to load every `.jar` in the mods folder). Everything in
@@ -116,6 +198,7 @@ A `.steinmod` is a jar with another extension (old Forge tries to load every `.j
 | `depends` | | Mods you cannot run without, `{"id": "minimum version"}`. Without them your mod does not load, and the list says why. They load before you. |
 | `optional` | | Mods you use when present. If present, they must be at least that version; they load before you. |
 | `access` | | Protected game methods you call from outside their class hierarchy (see below). Compile-time only. |
+| `announce` | | `false` keeps the mod out of the list the Loader sends to multiplayer servers (it still shows in the player's mod list). Default `true`. Loader 0.1.16+. |
 
 ## Game names and private members
 
@@ -174,6 +257,9 @@ the other mods — go on.
 | `onSlotChanged(window, slot, stack)`, `onWindowItems(window)` | the server changed a slot / sent a whole window, already applied | — |
 | `onEntityHurt(entity)` | any entity you see took damage (you too): the red flash, shake and sound come from here; `true` removes that effect on your client only | `LivingHurtEvent`, roughly (client side) |
 | `onEntityDeath(entity)` | an entity died, before its death animation | `LivingDeathEvent`, roughly (client side) |
+| `onRelationsChanged()` | anything in `Relations` changed (end of that tick) | — |
+| `onShutdown()` | the game is closing: save pending files, nothing else (runs on a shutdown thread) | — |
+| `onDisconnected(address, reason)` | the connection dropped or was refused: the disconnect screen just opened | `ClientDisconnectionFromServerEvent`, roughly |
 | `onHealthChanged(entity, oldHealth, newHealth, oldAbsorption, newAbsorption)` | health or absorption changed, already applied — damage is the drop, healing the rise | — |
 | `onFov`, `onFovModifier` | field of view of the frame / the player's FOV factor | `FOVModifier`, `FOVUpdateEvent` |
 | `onTextureStitch(map)`, `onModelsReloaded()` | texture atlas built / models ready | `TextureStitchEvent.Pre`, `ModelBakeEvent` |
@@ -190,17 +276,84 @@ it.
 
 | Class | What for |
 |---|---|
-| `Keys.register(binding)` | a `KeyBinding` in the Controls screen, keeping the player's key choice |
+| `Keys.bind(name, key, category)` | a key of your mod in the Controls screen, keeping the player's choice; `consumeClick()`, `isDown()`, `hold(true)` (e.g. a sneak toggle with `Keys.game(GameKey.SNEAK)`). Also the raw keyboard and mouse: `isDown(key)`, `isShiftDown()`, `isMouseDown(b)`, and the current mouse event (`mouseButton`, `mousePressed`, `mouseWheel`) |
 | `Hud.register(element)` | a `HudElement` on the HUD grid: the player moves, scales and toggles it; you size and draw it |
 | `Page`, `Option` | your options on the Panel (`onPage`): toggles, cycles, colours, actions, lists, screens, sliders (`Option.slider`), key pickers (`Option.key`) |
 | `Panel.open(parent, page)` | open the Panel on your page, e.g. from a button |
 | `Net.sendPayload(channel, bytes)` | a plugin message to the server |
 | `Net.set(proxy)` | route the connection (proxies) |
 | `Mods.isLoaded(id)`, `Mods.version(id)` | other mods |
-| `Inventory` | read the player inventory and the open window; move items with real clicks (`move`, `quickMove`, `swapHotbar`, `drop`, `equip`, `unequip`, raw `click`), open or closed inventory — see below |
-| `Targeting` | who is under the crosshair (`raycast`, all entities in order), and attack / swing / interact from your mod |
-| `Entities` | health, max health, absorption, armour and hurt time of any entity; `self()` is you |
+| `Inventory` | read the player inventory and the open window; move items with real clicks (`move`, `quickMove`, `swapHotbar`, `drop`, `equip`, `unequip`, raw `click`), open or closed inventory; slot rules (`accepts`, `room`, `isCraftingSlot`, `stacksWith`) — see below |
+| `Targeting` | who and what is on the crosshair line (`raycast`, every entity in order, the block that stops it; `raycast(query)` for longer looks with filters); plus the game's own `attack`, `swing` and `interact` |
+| `Entities` | health, max health, absorption, armour and hurt time of any entity; `self()` is you; the players in the world (`players`, `player(nick)`), `name`, `distance`, `isInvisible`; every loaded entity (`all`), its `kind` (player, hostile, passive), `typeName`, and its position and yaw for the frame being drawn (`x`, `y`, `z`, `yaw` with `partialTicks`) |
+| `Stacks` | item stacks: `create("diamond_sword", 1, damage)` for previews, `id`, `is(stack, "bow")`, `name`, `count`, `damage` / `maxDamage`, `sameKind`; `Inventory.count(s -> Stacks.is(s, "arrow"))` sums the inventory |
+| `Effects` | active potion effects as API values (`Effects.of(entity)`), their translated `name` with the level and `durationText` |
+| `Terrain` | the loaded world for maps and radars: `height`, `isAir` / `isSolid` / `isWater`, `skyLight`, `hasSky`, spawners, and `color(x, y, z)` — the block as a detailed minimap paints it (texture average with the biome tint) — or the game's `mapColor` |
+| `ModContext.of(this)` | your mod's id, version, `log()`, `folder()`, `config(Type.class)` and `secrets()` — like Spigot's `JavaPlugin` |
+| `ModConfig<T>` | settings in `config/<id>.json`: field-by-field load (a bad value falls back to its default only), atomic save, `saveSoon()` |
+| `Secrets` | passwords and tokens outside the JSON; on Windows protected by the system (DPAPI) |
+| `Log.of(id)` | `[id] message` in the game log; `debug` with `-Dstein.debug=<id>` |
+| `Tasks`, `Http` | work off the game thread and back on it (`async`, `later`, `onGameThread`); `Http.getText` |
+| `Relations`, `Players` | who is ally / enemy / in your group, for every mod — see below; the Tab list, teams, groups, ping; `Players.list()` reads the whole Tab list in one pass (use it instead of asking nick by nick when drawing a list), plus the Tab `header`/`footer` and the list score |
+| `Render` | 2D drawing without touching OpenGL — see below; also polygon fans, repeating textures (`texture(w, h, true)` + `drawFan`), items with your own count, effect icons, the Tab ping bars, player heads with the original skin on offline servers, text wrapping and the GUI size |
+| `Server`, `Account` | the current server (normalised address, `connect`, `connectingAddress`), the session (offline nick, launcher account; never the token) |
+| `Lang.tr(key, args)` | your `assets/<id>/lang/*.lang` in the player's language (English as fallback); also `ctx.tr(...)` |
+| `Chat` | a line in the chat only for the player (`print`), the action bar, sending as the player (`send`, goes through `onSendChat`), reading and making text components |
+| `Screens` | which screen is open (`kind`: menu, multiplayer, disconnected, inventory, container…), its size, and the game's buttons (`button`, `buttonId`, `setLabel`) for `onGuiInit` / `onGuiAction` |
+| `Game.fps()`, `fpsLimit()`, `refreshRate()` | the F3 FPS, the frame limit and the monitor refresh rate |
 | `Game.partialTicks()`, `Game.itemData(stack)`, … | small helpers — see the Javadoc |
+
+Everything added in Loader library **0.1.16** (players get it with Stein Loader 0.1.23) is `@Experimental`: a mod using it
+sets `"loader": "0.1.16"`.
+
+### Your mod's context
+
+```java
+public final class MyMod implements SteinMod {
+    static final class Config { boolean enabled = true; String color = "c"; }
+
+    private final ModContext ctx = ModContext.of(this);
+    private final ModConfig<Config> config = ctx.config(Config.class);   // config/mymod.json
+
+    @Override
+    public void afterStartGame() {
+        ctx.log().info("enabled: " + config.get().enabled);
+    }
+
+    @Override
+    public void onShutdown() {
+        config.save();   // or config.saveSoon() on every change; onShutdown catches the last second
+    }
+}
+```
+
+### Relations
+
+One place, shared by all mods, for who is who. It holds data and events only: nothing here protects, hides or paints
+anyone — that is up to whoever asks.
+
+- **Ask:** `Relations.of(nick or entity)` → `SELF`, `GROUP` (your own group), `ALLY`, `ENEMY`, `NEUTRAL` or `NONE`
+  (nobody says anything). `Relations.color(relation)` is the colour the player chose for it.
+- **Say:** `Relations.setPlayer(source, nick, relation)`, `setGroup(source, name, relation)` — `source` is usually your
+  mod id, so `clear(source)` removes only what is yours. A group is any name (clan, team, guild).
+- **Decide by yourself:** `Relations.register(source, (nick, group) -> relation or null)`. `Players.groupResolver(source,
+  nick -> group, "" for none, or null)` tells what group a player is in on a server with its own convention.
+- `onRelationsChanged()` arrives at the end of a tick in which anything changed.
+
+The official Combat mod is a provider (its lists, clans, URL feeds and colours); the HUD only asks.
+
+### Render
+
+```java
+Render.roundRect(x, y, 120, 20, 4, 0xC0202020);
+Render.text("Hello", x + 6, y + 6, 0xFFFFFFFF, true);
+Render.item(Inventory.heldItem(), x + 100, y + 2, true);
+Render.Texture map = Render.texture(128, 128);    // your own pixels: map.set(...), map.draw(...), map.release()
+```
+
+Shapes, text, images from resources, items, player heads, push/translate/scale/rotate, clipping and textures made by the
+mod. The Stein renderer will change underneath (towards Vulkan); code drawing through `Render` keeps working, code calling
+OpenGL, `GlStateManager` or `Tessellator` directly will not.
 
 ### Inventory
 
@@ -212,53 +365,32 @@ closed); it is what the game's click uses, and it changes from window to window.
 position in the player's inventory: 0-8 hotbar, 9-35 main, 36-39 armour (36 boots … 39 helmet). `slotOf(index)` and
 `inventoryIndexOf(slot)` translate.
 
-Every action is a real click (`PlayerControllerMP.windowClick`): the game applies it at once and the server gets the
-same packet a player's click sends. Nothing waits — several actions go out in the same tick — so pacing is your call,
-from `onTickEnd`. Many servers watch for inhuman click speed.
+Reading is free. Every action (`move`, `equip`, `click`…) is a real click (`PlayerControllerMP.windowClick`): the
+server gets the same packet a player's click sends. Keep actions for what the player asked for, one at a time — a
+button, a key — and not for automating play: many servers forbid that, and they watch click speed.
 
 ```java
-// Auto armour, one piece per tick: put on the best chestplate we carry.
-@Override
-public void onTickEnd() {
-    int best = -1, bestValue = Inventory.armorValue(Inventory.armor(Inventory.CHESTPLATE));
-    for (int i = 0; i < Inventory.ARMOR_START; i++) {
-        Object s = Inventory.stack(i);
-        if (Inventory.armorPiece(s) == Inventory.CHESTPLATE && Inventory.armorValue(s) > bestValue) {
-            best = i;
-            bestValue = Inventory.armorValue(s);
-        }
-    }
-    if (best >= 0 && !Inventory.isContainerOpen()) {
-        Inventory.equip(best);   // shift-click if the slot is empty, swap otherwise
-    }
-}
+// How many arrows you carry, next to the bow on the HUD (a HudElement's layout/draw).
+int arrows = Inventory.count(s -> Stacks.is(s, "arrow"));
+Render.item(Stacks.create("arrow", 1, 0), 0, 0, false, String.valueOf(arrows));
 ```
 
 ### Targeting
 
-`Targeting.raycast()` lists every entity on the crosshair line within attack reach (3 blocks, 6 in creative), nearest
-first — the same test the game uses to aim, but without stopping at the first one. `Ray.blockDistance` is where the
-line hits a block: the game does not aim at entities behind it. `attack(entity)` sends the game's own attack (it does
-not go through `onAttackEntity`), `swing()` swings the arm; the click does both.
+`Targeting.pointedEntity()` is what the game is aiming at. `Targeting.raycast()` lists every entity on the crosshair
+line within attack reach (3 blocks, 6 in creative), nearest first, and `Ray.blockDistance` is where the line hits a
+block (with `blockId` and `blockX/Y/Z`: which block, and where). For looking farther, `raycast(query)` takes options:
+a reach, `living()` for living entities only, a bigger `margin` around each entity (easier to point at something far
+away), blocks the line goes through (`passThrough(Targeting.FOLIAGE)`, `Targeting.GLASS`, or your own ids), and
+`cutAtBlock()`.
 
 ```java
-// Protect allies, and let the hit go through them to whoever is behind.
-@Override
-public boolean onAttackEntity(Object target) {
-    if (!isAlly(target)) {
-        return false;                       // not an ally: the normal hit goes on
-    }
-    Targeting.Ray ray = Targeting.raycast();
-    for (Targeting.Hit h : ray.hits) {
-        if (h.distance >= ray.blockDistance) {
-            break;                          // behind a wall
-        }
-        if (!isAlly(h.entity)) {
-            Targeting.attack(h.entity);     // the arm already swung with the click
-            break;
-        }
-    }
-    return true;                            // the ally is never hit
+// "What am I looking at": name and health of the living thing on the crosshair, up to 32 blocks, seeing through leaves.
+Targeting.Hit hit = Targeting.raycast(Targeting.query()
+        .reach(32).living().margin(0.3).passThrough(Targeting.FOLIAGE)).first();
+if (hit != null) {
+    String line = Entities.displayName(hit.entity) + " §c" + Math.round(Entities.health(hit.entity)) + " ❤";
+    Render.text(line, 0, 0, 0xFFFFFFFF, true);
 }
 ```
 
@@ -274,14 +406,8 @@ server sends it — many servers send full health for everyone). `Entities` read
 public void onHealthChanged(Object entity, float oldHealth, float newHealth, float oldAbs, float newAbs) {
     float damage = (oldHealth + oldAbs) - (newHealth + newAbs);
     if (damage > 0) {
-        hits.add(new Hit((Entity) entity, damage, System.currentTimeMillis()));
+        hits.add(new Hit(entity, damage, System.currentTimeMillis()));
     }
-}
-
-// No red flash on allies.
-@Override
-public boolean onEntityHurt(Object entity) {
-    return isAlly(entity);
 }
 ```
 
@@ -300,8 +426,8 @@ classes: a class is only looked up when the code using it runs.
   its per-frame events and its HUD elements — keep yours low.
 - **Leave GL state as you found it** in drawing events. You can call OpenGL and `GlStateManager` as usual: the Loader
   adapts your calls to the engine (LWJGL 3, its matrix stack and model batching) when it loads your mod.
-- **Save your settings** under `config/<your-id>.json` in the game folder (`mc.mcDataDir`).
-- **Be honest with servers.** Many servers forbid combat advantages. The Loader tells the server which mods are loaded.
+- **Save your settings** with `ModContext.of(this).config(Settings.class)`: it lands in `config/<your-id>.json` and survives a bad value.
+- **Be honest with servers.** Most servers forbid anything that plays for the player or gives a combat advantage (automated clicks, extended reach, hitting through others). Build things that show information or make the game nicer to use. The Loader tells the server which mods are loaded.
 
 ## Troubleshooting
 
