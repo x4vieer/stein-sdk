@@ -1,0 +1,9 @@
+{
+  "id": "damageindicator",
+  "name": "Damage Indicator",
+  "version": "1.0.0",
+  "author": "Stein examples",
+  "description": "Example mod: damage numbers over entities, the last hit you took on the HUD, and a key that puts on your best armour.",
+  "entry": "com.example.damageindicator.DamageIndicator",
+  "loader": "0.1.15"
+}
